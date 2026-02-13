@@ -21,4 +21,7 @@ router.delete('/:id', extractionFieldsController.deleteField);
 // PUT /api/extraction-fields/bulk-update - Update field order
 router.put('/bulk/update-order', extractionFieldsController.bulkUpdateOrder);
 
+// POST /api/extraction-fields/sync-headers - Manually sync headers
+router.post('/sync/headers', extractionFieldsController.syncHeaders);
+
 module.exports = router;

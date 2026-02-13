@@ -6,7 +6,7 @@ class ExtractionFieldsController {
      */
     async getAllFields(req, res) {
         try {
-            const clientId = req.user.id;
+            const clientId = req.clientId;
 
             const fields = await ExtractionField.find({ client_id: clientId })
                 .sort({ order: 1, createdAt: 1 })
@@ -31,7 +31,7 @@ class ExtractionFieldsController {
      */
     async createField(req, res) {
         try {
-            const clientId = req.user.id;
+            const clientId = req.clientId;
             const { field_name, description, is_active } = req.body;
 
             // Validation
@@ -137,7 +137,7 @@ class ExtractionFieldsController {
      */
     async updateField(req, res) {
         try {
-            const clientId = req.user.id;
+            const clientId = req.clientId;
             const fieldId = req.params.id;
             const { field_name, description, is_active } = req.body;
 
@@ -213,7 +213,7 @@ class ExtractionFieldsController {
      */
     async deleteField(req, res) {
         try {
-            const clientId = req.user.id;
+            const clientId = req.clientId;
             const fieldId = req.params.id;
 
             const field = await ExtractionField.findOneAndDelete({
@@ -246,7 +246,7 @@ class ExtractionFieldsController {
      */
     async bulkUpdateOrder(req, res) {
         try {
-            const clientId = req.user.id;
+            const clientId = req.clientId;
             const { fields } = req.body; // Array of { id, order }
 
             if (!Array.isArray(fields)) {
@@ -275,6 +275,60 @@ class ExtractionFieldsController {
             res.status(500).json({
                 success: false,
                 error: 'Failed to update field order',
+            });
+        }
+    }
+    /**
+     * Manually sync headers to Google Sheet
+     */
+    async syncHeaders(req, res) {
+        try {
+            const clientId = req.clientId;
+            const Client = require('../models/Client');
+
+            const client = await Client.findById(clientId);
+
+            // Debug logging to file (Re-added)
+            const fs = require('fs');
+            const logMessage = `${new Date().toISOString()} - Sync headers request for client ${clientId}: auth=${client?.google_authorized}, sheet=${client?.google_sheet_id}\n`;
+            fs.appendFileSync('debug_auth.txt', logMessage);
+
+            console.log(logMessage.trim());
+
+            if (!client || !client.google_authorized || !client.google_sheet_id) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Google Sheet not connected',
+                });
+            }
+
+            const googleSheetsService = require('../services/googleSheetsService');
+
+            // Get all active fields to build headers
+            const allFields = await ExtractionField.find({
+                client_id: clientId,
+                is_active: true,
+            }).sort({ order: 1 });
+
+            const headers = [
+                ...allFields.map(f => f.field_name),
+                'Call_Date',
+                'Call_Time',
+                'Execution_ID',
+                'Agent_Name',
+            ];
+
+            await googleSheetsService.createHeaders(client, headers);
+
+            res.json({
+                success: true,
+                message: 'Google Sheet headers updated successfully',
+            });
+        } catch (error) {
+            console.error('Error syncing headers:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Failed to sync headers',
             });
         }
     }

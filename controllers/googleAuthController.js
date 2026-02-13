@@ -17,7 +17,7 @@ class GoogleAuthController {
 
             // Store user ID in session or as state parameter
             const state = Buffer.from(JSON.stringify({
-                userId: req.user._id.toString()
+                userId: req.clientId.toString()
             })).toString('base64');
 
             const urlWithState = `${authUrl}&state=${state}`;
@@ -70,6 +70,10 @@ class GoogleAuthController {
 
             await client.save();
 
+            // Debug logging
+            const fs = require('fs');
+            fs.appendFileSync('debug_auth.txt', `${new Date().toISOString()} - OAuth Callback success for user ${userId}. Sheet ID is: ${client.google_sheet_id}\n`);
+
             // Redirect to frontend with success
             const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
             res.redirect(`${frontendUrl}/dashboard?google_auth=success`);
@@ -97,7 +101,17 @@ class GoogleAuthController {
                 return res.status(400).json({ error: 'Invalid Sheet ID format' });
             }
 
-            const client = await Client.findById(req.user._id);
+            const client = await Client.findById(req.clientId);
+
+            // Debug logging
+            const fs = require('fs');
+            fs.appendFileSync('debug_auth.txt', `${new Date().toISOString()} - Saving Sheet ID ${sheetId} for client ${req.clientId}\n`);
+
+            // Update Sheet ID regardless of auth status
+            client.google_sheet_id = sheetId;
+            await client.save();
+
+            fs.appendFileSync('debug_auth.txt', `${new Date().toISOString()} - Saved Sheet ID. Now checking auth: ${client.google_authorized}\n`);
 
             // Check if user is authorized with Google
             if (!client.google_authorized) {
@@ -106,10 +120,6 @@ class GoogleAuthController {
                     needsAuth: true
                 });
             }
-
-            // Update Sheet ID
-            client.google_sheet_id = sheetId;
-            await client.save();
 
             // Validate we can access the sheet
             try {
@@ -138,7 +148,7 @@ class GoogleAuthController {
      */
     async disconnect(req, res) {
         try {
-            const client = await Client.findById(req.user._id);
+            const client = await Client.findById(req.clientId);
 
             client.google_sheet_id = null;
             client.google_access_token = null;
@@ -160,7 +170,7 @@ class GoogleAuthController {
      */
     async getStatus(req, res) {
         try {
-            const client = await Client.findById(req.user._id);
+            const client = await Client.findById(req.clientId);
 
             const status = {
                 connected: client.google_authorized || false,
