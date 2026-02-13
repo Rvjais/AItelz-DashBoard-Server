@@ -218,7 +218,7 @@ class BolnaService {
     }
 
     /**
-     * Process transcript to extract doctor information and save to sheet
+     * Process transcript to extract data using custom user-defined fields
      * @param {Object} execution - Execution document
      */
     async processTranscriptForExtraction(execution) {
@@ -228,37 +228,94 @@ class BolnaService {
                 return;
             }
 
-            // Extract doctor information from transcript (using AI if available)
-            const extractedInfo = await dataExtractionService.extractDoctorInfo(execution.transcript);
+            // Find the agent to get client_id
+            const agent = await Agent.findById(execution.agent_id);
+            if (!agent || !agent.client_id) {
+                console.warn(`⚠️  Agent or client_id not found for execution ${execution.bolna_execution_id}`);
+                return;
+            }
 
-            // Only save if we have meaningful data
-            if (dataExtractionService.hasValidData(extractedInfo)) {
-                // Prepare data for sheet
-                const sheetData = {
-                    ...extractedInfo,
-                    call_date: execution.started_at ? execution.started_at.toISOString().split('T')[0] : '',
-                    call_time: execution.started_at ? execution.started_at.toISOString() : '',
-                    execution_id: execution.bolna_execution_id || execution._id.toString(),
+            // Import ExtractionField model
+            const ExtractionField = require('../models/ExtractionField');
+
+            // Fetch active extraction fields for this user
+            const extractionFields = await ExtractionField.find({
+                client_id: agent.client_id,
+                is_active: true
+            }).sort({ order: 1 });
+
+            if (!extractionFields || extractionFields.length === 0) {
+                console.log(`ℹ️  No active extraction fields found for client ${agent.client_id}`);
+                return;
+            }
+
+            // Extract field names and descriptions for AI
+            const fieldsForAI = extractionFields.map(field => ({
+                field_name: field.field_name,
+                description: field.description
+            }));
+
+            console.log(`🤖 Extracting data with ${extractionFields.length} custom fields...`);
+
+            // Use custom fields extraction
+            const extractedData = await dataExtractionService.extractWithCustomFields(
+                execution.transcript,
+                fieldsForAI
+            );
+
+            // Check if we have any meaningful data (not all "Not Found")
+            const hasValidData = Object.values(extractedData).some(value => value !== 'Not Found');
+
+            if (hasValidData || process.env.SAVE_EMPTY_EXTRACTIONS === 'true') {
+                // Prepare metadata
+                const metadata = {
+                    'Call_Date': execution.started_at ? execution.started_at.toISOString().split('T')[0] : '',
+                    'Call_Time': execution.started_at ? execution.started_at.toTimeString().split(' ')[0] : '',
+                    'Execution_ID': execution.bolna_execution_id || execution._id.toString(),
+                    'Agent_Name': agent.name || '',
                 };
 
-                // Save to CSV (append to daily file)
-                const date = new Date().toISOString().split('T')[0];
-                const filename = `doctor_data_${date}.csv`;
-                sheetService.appendToCSV(sheetData, filename);
+                // Get client to check Google Sheets connection
+                const Client = require('../models/Client');
+                const client = await Client.findById(agent.client_id);
 
-                // Send to Google Sheets (via Apps Script Webhook)
-                await sheetService.sendToGoogleAppsScript(sheetData);
+                if (client && client.google_authorized && client.google_sheet_id) {
+                    try {
+                        // Use Google Sheets API
+                        const googleSheetsService = require('./googleSheetsService');
+
+                        // Prepare values in same order as fields
+                        const values = [
+                            ...extractionFields.map(f => extractedData[f.field_name] || 'Not Found'),
+                            metadata.Call_Date,
+                            metadata.Call_Time,
+                            metadata.Execution_ID,
+                            metadata.Agent_Name,
+                        ];
+
+                        await googleSheetsService.appendRow(client, values);
+                        console.log('✅ Data sent to Google Sheets via API');
+                    } catch (error) {
+                        console.error('❌ Failed to send to Google Sheets:', error.message);
+                        // Don't throw - continue processing
+                    }
+                } else {
+                    console.log('ℹ️  Google Sheets not connected for this user');
+                }
 
                 // Update execution with extracted data
                 execution.extracted_data = {
                     ...execution.extracted_data,
-                    doctor_info: extractedInfo,
+                    custom_fields: extractedData,
+                    metadata: metadata,
                     _extraction_processed: true,
                     _extraction_date: new Date(),
                 };
                 await execution.save();
 
-                console.log(`✅ Extracted and saved doctor info for execution ${execution.bolna_execution_id}`);
+                console.log(`✅ Extracted and saved custom fields data for execution ${execution.bolna_execution_id}`);
+            } else {
+                console.log(`⚠️  No valid data extracted for execution ${execution.bolna_execution_id}`);
             }
         } catch (error) {
             console.error('Error processing transcript extraction:', error.message);

@@ -37,6 +37,164 @@ class DataExtractionService {
     }
 
     /**
+     * Extract information using custom user-defined fields
+     * @param {string} transcript - The call transcript text
+     * @param {Array} customFields - Array of {field_name, description} objects
+     * @returns {Promise<Object>} Extracted data with field names as keys
+     */
+    async extractWithCustomFields(transcript, customFields) {
+        if (!transcript || typeof transcript !== 'string') {
+            return this.getEmptyCustomFieldsData(customFields);
+        }
+
+        if (!Array.isArray(customFields) || customFields.length === 0) {
+            return {};
+        }
+
+        // Use AI if available
+        if (this.useAI) {
+            try {
+                return await this.extractWithCustomFieldsAI(transcript, customFields);
+            } catch (error) {
+                console.error('AI extraction with custom fields failed:', error.message);
+                return this.getEmptyCustomFieldsData(customFields);
+            }
+        } else {
+            // Without AI, just return "Not Found" for all fields
+            return this.getEmptyCustomFieldsData(customFields);
+        }
+    }
+
+    /**
+     * Extract information using OpenAI API with custom fields
+     */
+    async extractWithCustomFieldsAI(transcript, customFields) {
+        // Build JSON structure for expected output
+        const jsonStructure = {};
+        const fieldInstructions = [];
+
+        customFields.forEach(field => {
+            jsonStructure[field.field_name] = "";
+            fieldInstructions.push(`- ${field.field_name}: ${field.description}`);
+        });
+
+        const prompt = `Extract the following information from this call transcript. Return ONLY a valid JSON object with the exact keys shown below. If any information is not found in the transcript, use the exact string "Not Found".
+
+Required JSON format:
+${JSON.stringify(jsonStructure, null, 2)}
+
+Field extraction instructions:
+${fieldInstructions.join('\n')}
+
+IMPORTANT: 
+- For each field, carefully read the transcript and extract the relevant information based on the description
+- If the information is not present in the transcript, use exactly "Not Found" (not empty string, not null, but the string "Not Found")
+- Return only the JSON object, no additional text or explanation
+
+Transcript:
+${transcript}
+
+Return only the JSON object:`;
+
+        try {
+            // Build request payload
+            const requestPayload = {
+                model: this.openaiModel,
+                messages: [
+                    {
+                        role: 'system',
+                        content: 'You are a data extraction assistant. Extract structured information from call transcripts and return only valid JSON. If information is not found, always use the exact string "Not Found".'
+                    },
+                    {
+                        role: 'user',
+                        content: prompt
+                    }
+                ],
+                temperature: 0.3,
+                max_tokens: 1000
+            };
+
+            // Add JSON mode for supported models
+            if (this.openaiModel.includes('gpt-3.5-turbo-1106') ||
+                this.openaiModel.includes('gpt-4-turbo') ||
+                this.openaiModel.includes('gpt-4o') ||
+                this.openaiModel.includes('gpt-4-1106')) {
+                requestPayload.response_format = { type: 'json_object' };
+            }
+
+            const response = await axios.post(
+                'https://api.openai.com/v1/chat/completions',
+                requestPayload,
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.openaiApiKey}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+
+            const content = response.data.choices[0].message.content;
+
+            // Parse JSON response
+            let extractedData;
+            try {
+                // Clean content - remove markdown code blocks if present
+                let cleanedContent = content.trim();
+                if (cleanedContent.startsWith('```json')) {
+                    cleanedContent = cleanedContent.replace(/```json\n?/i, '').replace(/```\n?$/, '');
+                } else if (cleanedContent.startsWith('```')) {
+                    cleanedContent = cleanedContent.replace(/```\n?/i, '').replace(/```\n?$/, '');
+                }
+
+                extractedData = JSON.parse(cleanedContent);
+            } catch (parseError) {
+                // Try to extract JSON from response if it's wrapped in text
+                const jsonMatch = content.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                    extractedData = JSON.parse(jsonMatch[0]);
+                } else {
+                    console.error('Failed to parse AI response:', content);
+                    throw new Error('Failed to parse AI response as JSON');
+                }
+            }
+
+            // Validate and sanitize extracted data
+            const result = {};
+            customFields.forEach(field => {
+                const value = extractedData[field.field_name];
+                result[field.field_name] = this.sanitizeCustomValue(value);
+            });
+
+            return result;
+        } catch (error) {
+            console.error('OpenAI API error:', error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * Sanitize extracted custom field values
+     */
+    sanitizeCustomValue(value) {
+        if (!value || typeof value !== 'string') {
+            return 'Not Found';
+        }
+        const trimmed = value.trim();
+        return trimmed || 'Not Found';
+    }
+
+    /**
+     * Get empty data structure for custom fields
+     */
+    getEmptyCustomFieldsData(customFields) {
+        const result = {};
+        customFields.forEach(field => {
+            result[field.field_name] = 'Not Found';
+        });
+        return result;
+    }
+
+    /**
      * Extract information using OpenAI API
      */
     async extractWithAI(transcript) {
@@ -82,8 +240,8 @@ Return only the JSON object, no additional text or explanation:`;
             };
 
             // Add JSON mode for supported models (gpt-3.5-turbo-1106 and newer, gpt-4-turbo and newer)
-            if (this.openaiModel.includes('gpt-3.5-turbo-1106') || 
-                this.openaiModel.includes('gpt-4-turbo') || 
+            if (this.openaiModel.includes('gpt-3.5-turbo-1106') ||
+                this.openaiModel.includes('gpt-4-turbo') ||
                 this.openaiModel.includes('gpt-4o') ||
                 this.openaiModel.includes('gpt-4-1106')) {
                 requestPayload.response_format = { type: 'json_object' };
@@ -101,7 +259,7 @@ Return only the JSON object, no additional text or explanation:`;
             );
 
             const content = response.data.choices[0].message.content;
-            
+
             // Parse JSON response
             let extractedData;
             try {
@@ -112,7 +270,7 @@ Return only the JSON object, no additional text or explanation:`;
                 } else if (cleanedContent.startsWith('```')) {
                     cleanedContent = cleanedContent.replace(/```\n?/i, '').replace(/```\n?$/, '');
                 }
-                
+
                 extractedData = JSON.parse(cleanedContent);
             } catch (parseError) {
                 // Try to extract JSON from response if it's wrapped in text
@@ -144,7 +302,7 @@ Return only the JSON object, no additional text or explanation:`;
      */
     extractWithRegex(transcript) {
         const text = transcript.toLowerCase();
-        
+
         return {
             doctor_name: this.extractDoctorName(transcript, text),
             clinic_hospital_name: this.extractClinicName(transcript, text),
@@ -182,7 +340,7 @@ Return only the JSON object, no additional text or explanation:`;
                     .replace(/^(?:i am|my name is|this is)\s*/i, '')
                     .replace(/^name[:\s]+/i, '')
                     .trim();
-                
+
                 if (name && name.length > 2) {
                     return name;
                 }
@@ -209,7 +367,7 @@ Return only the JSON object, no additional text or explanation:`;
                     .replace(/^(?:at|from)\s+/i, '')
                     .replace(/\s+(?:clinic|hospital|medical center|health center)$/i, '')
                     .trim();
-                
+
                 if (name && name.length > 2) {
                     return name;
                 }
@@ -236,7 +394,7 @@ Return only the JSON object, no additional text or explanation:`;
                     .replace(/^(?:phone|mobile|contact|number)[:\s]+/i, '')
                     .trim();
                 phone = phone.replace(/\s*(?:is|are|:)\s*/gi, '').trim();
-                
+
                 if (phone && phone.length >= 10) {
                     return phone;
                 }
@@ -251,7 +409,7 @@ Return only the JSON object, no additional text or explanation:`;
     extractEmail(originalText, lowerText) {
         const emailPattern = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
         const matches = originalText.match(emailPattern);
-        
+
         if (matches && matches.length > 0) {
             return matches[0].trim();
         }
@@ -294,7 +452,7 @@ Return only the JSON object, no additional text or explanation:`;
                     .replace(/^(?:in|at)\s+/i, '')
                     .replace(/,\s*(?:[A-Z]{2}|india|usa|united states).*$/i, '')
                     .trim();
-                
+
                 const cityLower = city.toLowerCase();
                 if (city && city.length > 2 && (
                     commonCities.some(c => cityLower.includes(c)) ||

@@ -36,6 +36,27 @@ const clientSchema = new mongoose.Schema({
         type: Date,
         default: null,
     },
+    // Google Sheets Integration
+    google_sheet_id: {
+        type: String,
+        default: null,
+    },
+    google_access_token: {
+        type: String,  // Encrypted
+        default: null,
+    },
+    google_refresh_token: {
+        type: String,  // Encrypted
+        default: null,
+    },
+    google_token_expiry: {
+        type: Date,
+        default: null,
+    },
+    google_authorized: {
+        type: Boolean,
+        default: false,
+    },
 }, {
     timestamps: true, // Automatically adds createdAt and updatedAt
 });

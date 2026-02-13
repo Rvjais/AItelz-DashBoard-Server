@@ -9,6 +9,8 @@ const { startExecutionSync } = require('./jobs/syncExecutions');
 const authRoutes = require('./routes/auth');
 const agentRoutes = require('./routes/agents');
 const executionRoutes = require('./routes/executions');
+const extractionFieldsRoutes = require('./routes/extractionFields');
+const googleAuthRoutes = require('./routes/googleAuth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -64,6 +66,8 @@ app.get('/', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/agents', agentRoutes);
 app.use('/api/executions', executionRoutes);
+app.use('/api/extraction-fields', extractionFieldsRoutes);
+app.use('/api/auth', googleAuthRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

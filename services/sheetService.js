@@ -320,6 +320,69 @@ class SheetService {
             return false;
         }
     }
+
+    /**
+     * Send extracted data with custom fields to Google Apps Script Webhook
+     * @param {Array} headers - Array of column header names
+     * @param {Object} extractedData - Object with key-value pairs
+     * @param {Object} metadata - Additional metadata (execution_id, call_date, etc.)
+     * @returns {Promise<boolean>} Success status
+     */
+    async sendToGoogleAppsScriptDynamic(headers, extractedData, metadata = {}) {
+        try {
+            const scriptUrl = process.env.GOOGLE_SCRIPT_URL;
+
+            if (!scriptUrl) {
+                console.warn('⚠️ GOOGLE_SCRIPT_URL not set in environment variables. Skipping Google Sheet upload.');
+                return false;
+            }
+
+            if (!headers || !Array.isArray(headers) || headers.length === 0) {
+                console.warn('⚠️ No headers provided for Google Sheets');
+                return false;
+            }
+
+            // Build values array matching headers order
+            const values = headers.map(header => {
+                // Check if it's in extracted data
+                if (extractedData && extractedData.hasOwnProperty(header)) {
+                    return extractedData[header] || 'Not Found';
+                }
+                // Check if it's in metadata
+                if (metadata && metadata.hasOwnProperty(header)) {
+                    return metadata[header] || '';
+                }
+                return 'Not Found';
+            });
+
+            const payload = {
+                headers,
+                values,
+                timestamp: new Date().toISOString(),
+            };
+
+            console.log('📤 Sending dynamic data to Google Sheets via Webs...');
+            console.log(`   Headers: ${headers.join(', ')}`);
+
+            const response = await axios.post(scriptUrl, payload, {
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                timeout: 10000, // 10 second timeout
+            });
+
+            if (response.data && response.data.status === 'success') {
+                console.log('✅ Successfully sent data to Google Sheet');
+                return true;
+            } else {
+                console.error('❌ Google Apps Script returned error:', response.data);
+                return false;
+            }
+        } catch (error) {
+            console.error('❌ Failed to send data to Google Apps Script:', error.message);
+            return false;
+        }
+    }
 }
 
 module.exports = new SheetService();
