@@ -221,17 +221,21 @@ class BolnaService {
      * Process transcript to extract data using custom user-defined fields
      * @param {Object} execution - Execution document
      */
+    /**
+     * Process transcript to extract data using custom user-defined fields
+     * @param {Object} execution - Execution document
+     */
     async processTranscriptForExtraction(execution) {
         try {
-            // Check if already processed (to avoid duplicates)
-            if (execution.extracted_data && execution.extracted_data._extraction_processed) {
-                return;
-            }
-
             // Find the agent to get client_id
             const agent = await Agent.findById(execution.agent_id);
             if (!agent || !agent.client_id) {
                 console.warn(`⚠️  Agent or client_id not found for execution ${execution.bolna_execution_id}`);
+                return;
+            }
+
+            // check if already synced to sheet
+            if (execution.extracted_data && execution.extracted_data.google_sheet_synced) {
                 return;
             }
 
@@ -249,22 +253,31 @@ class BolnaService {
                 return;
             }
 
-            // Extract field names and descriptions for AI
-            const fieldsForAI = extractionFields.map(field => ({
-                field_name: field.field_name,
-                description: field.description
-            }));
+            let extractedData = {};
 
-            console.log(`🤖 Extracting data with ${extractionFields.length} custom fields...`);
+            // Check if we already have extracted data
+            if (execution.extracted_data && execution.extracted_data.custom_fields) {
+                extractedData = execution.extracted_data.custom_fields;
+            } else {
+                // Extract field names and descriptions for AI
+                const fieldsForAI = extractionFields.map(field => ({
+                    field_name: field.field_name,
+                    description: field.description
+                }));
 
-            // Use custom fields extraction
-            const extractedData = await dataExtractionService.extractWithCustomFields(
-                execution.transcript,
-                fieldsForAI
-            );
+                console.log(`🤖 Extracting data with ${extractionFields.length} custom fields...`);
+
+                // Use custom fields extraction
+                extractedData = await dataExtractionService.extractWithCustomFields(
+                    execution.transcript,
+                    fieldsForAI
+                );
+            }
 
             // Check if we have any meaningful data (not all "Not Found")
             const hasValidData = Object.values(extractedData).some(value => value !== 'Not Found');
+
+            let sheetSynced = false;
 
             if (hasValidData || process.env.SAVE_EMPTY_EXTRACTIONS === 'true') {
                 // Prepare metadata
@@ -294,6 +307,7 @@ class BolnaService {
                         ];
 
                         await googleSheetsService.appendRow(client, values);
+                        sheetSynced = true;
                         console.log('✅ Data sent to Google Sheets via API');
                     } catch (error) {
                         console.error('❌ Failed to send to Google Sheets:', error.message);
@@ -309,7 +323,8 @@ class BolnaService {
                     custom_fields: extractedData,
                     metadata: metadata,
                     _extraction_processed: true,
-                    _extraction_date: new Date(),
+                    _extraction_date: execution.extracted_data?._extraction_date || new Date(),
+                    google_sheet_synced: sheetSynced
                 };
                 await execution.save();
 

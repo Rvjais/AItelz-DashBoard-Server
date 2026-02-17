@@ -32,4 +32,7 @@ router.post('/sync', async (req, res) => {
     }
 });
 
+// Trigger sync of past call history to Google Sheets
+router.post('/sync-history', executionController.syncPastExecutions);
+
 module.exports = router;

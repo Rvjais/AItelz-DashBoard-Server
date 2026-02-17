@@ -252,3 +252,60 @@ exports.listExportedFiles = async (req, res) => {
         res.status(500).json({ error: 'Failed to list files' });
     }
 };
+
+// Sync past executions to Google Sheet
+exports.syncPastExecutions = async (req, res) => {
+    try {
+        const bolnaService = require('../services/bolnaService');
+        const Agent = require('../models/Agent');
+        const Execution = require('../models/Execution');
+
+        // Get all agent IDs owned by this client
+        const clientAgents = await Agent.find({ client_id: req.clientId }).select('_id');
+        const agentIds = clientAgents.map(agent => agent._id);
+
+        if (agentIds.length === 0) {
+            return res.json({
+                success: true,
+                count: 0,
+                message: 'No agents found to sync'
+            });
+        }
+
+        // Find executions that have a transcript available but not synced to sheet
+        const query = {
+            agent_id: { $in: agentIds },
+            transcript: { $exists: true, $ne: '' },
+            'extracted_data.google_sheet_synced': { $ne: true }
+        };
+
+        const executions = await Execution.find(query);
+        console.log(`Found ${executions.length} past executions to sync for client ${req.clientId}`);
+
+        let syncedCount = 0;
+
+        // Process in parallel with concurrency limit (e.g., 5 at a time) to avoid rate limits
+        const batchSize = 5;
+        for (let i = 0; i < executions.length; i += batchSize) {
+            const batch = executions.slice(i, i + batchSize);
+            await Promise.all(batch.map(async (execution) => {
+                try {
+                    await bolnaService.processTranscriptForExtraction(execution);
+                    syncedCount++;
+                } catch (error) {
+                    console.error(`Failed to sync execution ${execution._id}:`, error.message);
+                }
+            }));
+        }
+
+        res.json({
+            success: true,
+            count: syncedCount,
+            totalFound: executions.length,
+            message: `Synced ${syncedCount} past executions to Google Sheet`
+        });
+    } catch (error) {
+        console.error('Sync past executions error:', error);
+        res.status(500).json({ error: 'Failed to sync past executions' });
+    }
+};
