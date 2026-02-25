@@ -17,8 +17,11 @@ const PORT = process.env.PORT || 5000;
 
 // Middleware
 const allowedOrigins = [
+    // ── Local Development ──
     'http://localhost:5173',
     'http://localhost:5174',
+    // ── Production ──
+    'https://in.aitelz.com',
     'https://voice-dashboard-client.vercel.app',
     process.env.FRONTEND_URL,
 ].filter(Boolean);
