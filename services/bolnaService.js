@@ -23,23 +23,23 @@ class BolnaService {
             const response = await this.axiosInstance.get('/agent/all');
             return response.data;
         } catch (error) {
-            console.error('Error fetching all agents:', error.response?.data || error.message);
+            console.error('Error fetching all agents from AItelz:', error.response?.data || error.message);
             throw error;
         }
     }
 
-    // Fetch agent details from Bolna (GET /v2/agent/{agent_id})
+    // Fetch agent details from AItelz (GET /v2/agent/{agent_id})
     async fetchAgentDetails(bolnaAgentId) {
         try {
             const response = await this.axiosInstance.get(`/v2/agent/${bolnaAgentId}`);
             return response.data;
         } catch (error) {
-            console.error(`Error fetching agent ${bolnaAgentId}:`, error.response?.data || error.message);
+            console.error(`Error fetching AItelz agent ${bolnaAgentId}:`, error.response?.data || error.message);
             throw error;
         }
     }
 
-    // Fetch all executions for a specific agent with pagination (GET /v2/agent/{agent_id}/executions)
+    // Fetch all executions for a specific agent with pagination (GET /v2/agent/{agent_id}/executions) - AItelz API
     async fetchExecutionsForAgent(bolnaAgentId, pageNumber = 1, pageSize = 50) {
         try {
             const response = await this.axiosInstance.get(`/v2/agent/${bolnaAgentId}/executions`, {
@@ -50,7 +50,7 @@ class BolnaService {
             });
             return response.data;
         } catch (error) {
-            console.error(`Error fetching executions for agent ${bolnaAgentId}:`, error.response?.data || error.message);
+            console.error(`Error fetching executions for AItelz agent ${bolnaAgentId}:`, error.response?.data || error.message);
             throw error;
         }
     }
@@ -61,7 +61,28 @@ class BolnaService {
             const response = await this.axiosInstance.get(`/agent/${bolnaAgentId}/execution/${bolnaExecutionId}`);
             return response.data;
         } catch (error) {
-            console.error(`Error fetching execution ${bolnaExecutionId}:`, error.response?.data || error.message);
+            console.error(`Error fetching AItelz execution ${bolnaExecutionId}:`, error.response?.data || error.message);
+            throw error;
+        }
+    }
+
+    // Initiate an outbound call (POST /call)
+    async initiateCall(bolnaAgentId, recipientPhoneNumber, retryConfig = {}) {
+        try {
+            const payload = {
+                agent_id: bolnaAgentId,
+                recipient_phone_number: recipientPhoneNumber,
+            };
+
+            // Add retry config if specified
+            if (retryConfig && Object.keys(retryConfig).length > 0) {
+                payload.retry_config = retryConfig;
+            }
+
+            const response = await this.axiosInstance.post('/call', payload);
+            return response.data;
+        } catch (error) {
+            console.error(`Error initiating AItelz call for agent ${bolnaAgentId}:`, error.response?.data || error.message);
             throw error;
         }
     }
@@ -125,7 +146,7 @@ class BolnaService {
                         await this.upsertExecution(agent._id, executionData);
                         totalSynced++;
                     } catch (error) {
-                        console.error(`Error upserting execution:`, error.message);
+                        console.error(`Error upserting AItelz execution:`, error.message);
                     }
                 }
 
@@ -137,7 +158,7 @@ class BolnaService {
             console.log(`   ✓ Synced ${totalSynced} executions across ${pageNumber} page(s)`);
             return totalSynced;
         } catch (error) {
-            console.error(`Error syncing agent ${bolnaAgentId}:`, error.message);
+            console.error(`Error syncing AItelz agent ${bolnaAgentId}:`, error.message);
             return 0;
         }
     }
@@ -152,10 +173,10 @@ class BolnaService {
                 return;
             }
 
-            // Bolna returns cost in cents, convert to dollars
+            // Bolna returns cost in cents, convert to dollars - AItelz formatting
             const costInDollars = executionData.total_cost ? executionData.total_cost / 100 : 0;
 
-            // Bolna API uses conversation_duration (in seconds) - this is the correct field!
+            // AItelz uses conversation_duration (in seconds)
             const conversationTime = executionData.conversation_duration
                 || executionData.conversation_time
                 || executionData.duration
@@ -187,6 +208,7 @@ class BolnaService {
                 from_number: executionData.telephony_data?.from_number || executionData.from_number,
                 to_number: executionData.telephony_data?.to_number || executionData.to_number,
                 call_sid: executionData.telephony_data?.call_sid || executionData.call_sid,
+                retry_attempt: executionData.retry_attempt || executionData.metadata?.retry_attempt || 0,
                 extracted_data: finalExtractedData,
                 transcript: executionData.transcript || '',
                 metadata: {
@@ -230,7 +252,7 @@ class BolnaService {
             // Find the agent to get client_id
             const agent = await Agent.findById(execution.agent_id);
             if (!agent || !agent.client_id) {
-                console.warn(`⚠️  Agent or client_id not found for execution ${execution.bolna_execution_id}`);
+                console.warn(`⚠️  Agent or client_id not found for AItelz execution ${execution.bolna_execution_id}`);
                 return;
             }
 
@@ -292,26 +314,33 @@ class BolnaService {
                 const Client = require('../models/Client');
                 const client = await Client.findById(agent.client_id);
 
-                if (client && client.google_authorized && client.google_sheet_id) {
-                    try {
-                        // Use Google Sheets API
-                        const googleSheetsService = require('./googleSheetsService');
+                if (client && client.google_authorized) {
+                    // Determine which sheet ID to use: priority extraction_sheet_id, then legacy google_sheet_id
+                    const sheetId = client.extraction_sheet_id || client.google_sheet_id;
 
-                        // Prepare values in same order as fields
-                        const values = [
-                            ...extractionFields.map(f => extractedData[f.field_name] || 'Not Found'),
-                            metadata.Call_Date,
-                            metadata.Call_Time,
-                            metadata.Execution_ID,
-                            metadata.Agent_Name,
-                        ];
+                    if (sheetId && extractionFields.length > 0) {
+                        try {
+                            // Use Google Sheets API
+                            const googleSheetsService = require('./googleSheetsService');
 
-                        await googleSheetsService.appendRow(client, values);
-                        sheetSynced = true;
-                        console.log('✅ Data sent to Google Sheets via API');
-                    } catch (error) {
-                        console.error('❌ Failed to send to Google Sheets:', error.message);
-                        // Don't throw - continue processing
+                            // Prepare values in same order as fields
+                            const values = [
+                                ...extractionFields.map(f => extractedData[f.field_name] || 'Not Found'),
+                                metadata.Call_Date,
+                                metadata.Call_Time,
+                                metadata.Execution_ID,
+                                metadata.Agent_Name,
+                            ];
+
+                            await googleSheetsService.appendRow(client, sheetId, values);
+                            sheetSynced = true;
+                            console.log(`✅ Data sent to Google Sheet (${sheetId}) via API`);
+                        } catch (error) {
+                            console.error('❌ Failed to send to Google Sheets:', error.message);
+                            // Don't throw - continue processing
+                        }
+                    } else {
+                        console.log('ℹ️  No Google Sheet ID configured or no extraction fields to sync.');
                     }
                 } else {
                     console.log('ℹ️  Google Sheets not connected for this user');
@@ -328,9 +357,9 @@ class BolnaService {
                 };
                 await execution.save();
 
-                console.log(`✅ Extracted and saved custom fields data for execution ${execution.bolna_execution_id}`);
+                console.log(`✅ Extracted and saved custom fields data for AItelz execution ${execution.bolna_execution_id}`);
             } else {
-                console.log(`⚠️  No valid data extracted for execution ${execution.bolna_execution_id}`);
+                console.log(`⚠️  No valid data extracted for AItelz execution ${execution.bolna_execution_id}`);
             }
         } catch (error) {
             console.error('Error processing transcript extraction:', error.message);
@@ -370,12 +399,12 @@ class BolnaService {
 
             return execution;
         } catch (error) {
-            console.error('Error fetching execution details:', error.message);
+            console.error('Error fetching AItelz execution details:', error.message);
             throw error;
         }
     }
 
-    // Verify agent exists in Bolna and sync details
+    // Verify agent exists in AItelz and sync details
     async verifyAndSyncAgent(bolnaAgentId) {
         try {
             const agentDetails = await this.fetchAgentDetails(bolnaAgentId);
@@ -388,8 +417,19 @@ class BolnaService {
             };
         } catch (error) {
             if (error.response?.status === 404) {
-                return { exists: false, error: 'Agent not found in Bolna' };
+                return { exists: false, error: 'Agent not found in AItelz' };
             }
+            throw error;
+        }
+    }
+
+    // Update agent configuration (PUT /v2/agent/{agent_id})
+    async updateAgentConfig(bolnaAgentId, config) {
+        try {
+            const response = await this.axiosInstance.put(`/v2/agent/${bolnaAgentId}`, config);
+            return response.data;
+        } catch (error) {
+            console.error(`Error updating AItelz agent ${bolnaAgentId}:`, error.response?.data || error.message);
             throw error;
         }
     }

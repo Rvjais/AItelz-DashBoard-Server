@@ -12,7 +12,7 @@ const transporter = nodemailer.createTransport({
 
 // Function to send password reset email
 const sendPasswordResetEmail = async (email, resetToken) => {
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/?token=${resetToken}`;
+    const resetUrl = `${process.env.FRONTEND_URL || 'https://in.aitelz.com'}/?token=${resetToken}`;
 
     // Check if email is configured - if not, just log the URL for development
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
@@ -27,7 +27,7 @@ const sendPasswordResetEmail = async (email, resetToken) => {
         console.log('💡 To enable email sending, add to backend/.env:');
         console.log('   EMAIL_USER=your.email@gmail.com');
         console.log('   EMAIL_PASSWORD=your-app-password');
-        console.log('   FRONTEND_URL=http://localhost:5173');
+        console.log('   FRONTEND_URL=https://in.aitelz.com');
         console.log('═══════════════════════════════════════════════════════');
         console.log('\n');
         return; // Skip actual email sending in dev mode

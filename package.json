@@ -1,7 +1,7 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Voice Dashboard API - Backend for Bolna voice agent management",
+  "description": "Voice Dashboard API - Backend for AItelz voice agent management",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

@@ -45,7 +45,7 @@ const executionSchema = new mongoose.Schema({
         default: '',
     },
 
-    // Raw metadata from Bolna
+    // Raw metadata from AItelz
     metadata: {
         type: mongoose.Schema.Types.Mixed,
         default: {},
@@ -65,6 +65,10 @@ const executionSchema = new mongoose.Schema({
     ended_at: {
         type: Date,
         default: null,
+    },
+    retry_attempt: {
+        type: Number,
+        default: 0,
     },
 }, {
     timestamps: true, // createdAt and updatedAt

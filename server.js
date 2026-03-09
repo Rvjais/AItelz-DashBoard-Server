@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const connectDB = require('./config/database');
 const { startExecutionSync } = require('./jobs/syncExecutions');
+const { startCampaignRunner } = require('./jobs/campaignRunner');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -11,39 +12,40 @@ const agentRoutes = require('./routes/agents');
 const executionRoutes = require('./routes/executions');
 const extractionFieldsRoutes = require('./routes/extractionFields');
 const googleAuthRoutes = require('./routes/googleAuth');
+const campaignRoutes = require('./routes/campaigns');
 
 const app = express();
+app.set('trust proxy', true);
 const PORT = process.env.PORT || 5000;
 
-// Middleware
-const allowedOrigins = [
-    // ── Local Development ──
-    'http://localhost:5173',
-    'http://localhost:5174',
-    // ── Production ──
-    'https://in.aitelz.com',
-    'https://voice-dashboard-client.vercel.app',
-    process.env.FRONTEND_URL,
-].filter(Boolean);
+// ─── STRICT CORS FIX FOR LITESPEED PROXY ────────────────────────────────────
+app.use((req, res, next) => {
+    // LiteSpeed sometimes duplicates the Origin header in proxy requests (e.g. "url, url")
+    let rawOrigin = req.headers.origin || '';
 
-app.use(cors({
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
+    // Parse out the first origin if it's a comma-separated list
+    let origin = rawOrigin.split(',')[0].trim();
 
-        if (allowedOrigins.indexOf(origin) !== -1) {
-            callback(null, true);
-        } else {
-            console.log('⚠️ CORS blocked origin:', origin);
-            console.log('✅ Allowed origins:', allowedOrigins);
-            callback(null, false); // Reject but don't throw error
-        }
-    },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-    optionsSuccessStatus: 200
-}));
+    const allowed = ['https://in.aitelz.com', 'https://aitelz.com'];
+
+    // If it's a valid allowed origin, use it. Otherwise, fallback to the default frontend URL.
+    if (allowed.includes(origin) || origin.endsWith('aitelz.com')) {
+        res.header('Access-Control-Allow-Origin', origin);
+    } else {
+        res.header('Access-Control-Allow-Origin', 'https://in.aitelz.com');
+    }
+
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
+    res.header('Access-Control-Allow-Credentials', 'true');
+
+    // Respond to Preflight immediately
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    next();
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -71,6 +73,7 @@ app.use('/api/agents', agentRoutes);
 app.use('/api/executions', executionRoutes);
 app.use('/api/extraction-fields', extractionFieldsRoutes);
 app.use('/api/auth', googleAuthRoutes);
+app.use('/api/campaigns', campaignRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -98,6 +101,7 @@ const startServer = async () => {
 
         // Start cron jobs
         startExecutionSync();
+        startCampaignRunner();
 
         // Start Express server
         app.listen(PORT, () => {

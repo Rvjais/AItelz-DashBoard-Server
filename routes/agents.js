@@ -12,4 +12,8 @@ router.post('/', agentController.createAgent);
 router.put('/:agentId', agentController.updateAgent);
 router.delete('/:agentId', agentController.deleteAgent);
 
+// Bolna Platform Specific Routes
+router.get('/:agentId/bolna-details', agentController.getBolnaAgentDetails);
+router.put('/:agentId/prompt', agentController.updateBolnaPrompt);
+
 module.exports = router;

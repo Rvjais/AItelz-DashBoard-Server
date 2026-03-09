@@ -41,6 +41,10 @@ const clientSchema = new mongoose.Schema({
         type: String,
         default: null,
     },
+    extraction_sheet_id: {
+        type: String,
+        default: null,
+    },
     google_access_token: {
         type: String,  // Encrypted
         default: null,

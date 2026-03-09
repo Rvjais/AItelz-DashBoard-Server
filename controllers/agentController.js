@@ -1,4 +1,5 @@
 const Agent = require('../models/Agent');
+const bolnaService = require('../services/bolnaService');
 
 // Get all agents for the authenticated client
 exports.getMyAgents = async (req, res) => {
@@ -130,5 +131,70 @@ exports.deleteAgent = async (req, res) => {
     } catch (error) {
         console.error('Delete agent error:', error);
         res.status(500).json({ error: 'Failed to delete agent' });
+    }
+};
+// Get full AItelz agent details
+exports.getBolnaAgentDetails = async (req, res) => {
+    try {
+        const { agentId } = req.params;
+        const agent = await Agent.findOne({ _id: agentId, client_id: req.clientId });
+
+        if (!agent) {
+            return res.status(404).json({ error: 'Agent not found' });
+        }
+
+        const details = await bolnaService.fetchAgentDetails(agent.bolna_agent_id);
+        res.json({ success: true, details });
+    } catch (error) {
+        console.error('Get AItelz agent details error:', error);
+        res.status(500).json({ error: 'Failed to fetch AItelz agent details' });
+    }
+};
+
+// Update AItelz agent prompt
+exports.updateBolnaPrompt = async (req, res) => {
+    try {
+        const { agentId } = req.params;
+        const { systemPrompt } = req.body;
+
+        if (!systemPrompt) {
+            return res.status(400).json({ error: 'System prompt is required' });
+        }
+
+        const agent = await Agent.findOne({ _id: agentId, client_id: req.clientId });
+        if (!agent) {
+            return res.status(404).json({ error: 'Agent not found' });
+        }
+
+        // Fetch current config first to maintain other settings
+        const currentConfig = await bolnaService.fetchAgentDetails(agent.bolna_agent_id);
+
+        // Update the prompt in the config
+        // AItelz typically uses task_1 for the main conversation
+        if (!currentConfig.agent_prompts) currentConfig.agent_prompts = {};
+        if (!currentConfig.agent_prompts.task_1) currentConfig.agent_prompts.task_1 = {};
+
+        currentConfig.agent_prompts.task_1.system_prompt = systemPrompt;
+
+        // Clean up config for PUT request - AItelz V2 API expects specific nested structure
+        const updatePayload = {
+            agent_config: {
+                agent_name: currentConfig.agent_name,
+                agent_welcome_message: currentConfig.agent_welcome_message,
+                tasks: currentConfig.tasks
+            },
+            agent_prompts: currentConfig.agent_prompts
+        };
+
+        const result = await bolnaService.updateAgentConfig(agent.bolna_agent_id, updatePayload);
+
+        res.json({
+            success: true,
+            message: 'Prompt updated successfully on AItelz',
+            result
+        });
+    } catch (error) {
+        console.error('Update AItelz prompt error:', error);
+        res.status(500).json({ error: 'Failed to update prompt on AItelz' });
     }
 };

@@ -101,7 +101,7 @@ class ExtractionFieldsController {
                         'Agent_Name',
                     ];
 
-                    await googleSheetsService.createHeaders(client, headers);
+                    await googleSheetsService.createHeaders(client, client.google_sheet_id, headers);
                     console.log('✅ Google Sheets headers updated');
                 } catch (error) {
                     console.error('⚠️  Failed to update Google Sheets headers:', error.message);
@@ -288,12 +288,15 @@ class ExtractionFieldsController {
 
             const client = await Client.findById(clientId);
 
-            // Debug logging to file (Re-added)
-            const fs = require('fs');
-            const logMessage = `${new Date().toISOString()} - Sync headers request for client ${clientId}: auth=${client?.google_authorized}, sheet=${client?.google_sheet_id}\n`;
-            fs.appendFileSync('debug_auth.txt', logMessage);
-
-            console.log(logMessage.trim());
+            // Debug logging to file
+            try {
+                const fs = require('fs');
+                const logMessage = `${new Date().toISOString()} - Sync headers request for client ${clientId}: auth=${client?.google_authorized}, sheet=${client?.google_sheet_id}\n`;
+                fs.appendFileSync('debug_auth.txt', logMessage);
+                console.log(logMessage.trim());
+            } catch (err) {
+                console.error("Failed to write to debug_auth.txt", err.message);
+            }
 
             if (!client || !client.google_authorized || !client.google_sheet_id) {
                 return res.status(400).json({
@@ -318,7 +321,7 @@ class ExtractionFieldsController {
                 'Agent_Name',
             ];
 
-            await googleSheetsService.createHeaders(client, headers);
+            await googleSheetsService.createHeaders(client, client.google_sheet_id, headers);
 
             res.json({
                 success: true,
@@ -329,6 +332,7 @@ class ExtractionFieldsController {
             res.status(500).json({
                 success: false,
                 error: 'Failed to sync headers',
+                details: error.message || error.toString()
             });
         }
     }

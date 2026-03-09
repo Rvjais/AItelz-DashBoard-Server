@@ -13,11 +13,24 @@ class GoogleAuthController {
      */
     async initiateOAuth(req, res) {
         try {
-            const authUrl = googleSheetsService.getAuthUrl();
+            const protocol = req.protocol;
+            const host = req.get('host');
+            // Dynamically build redirect URI based on how this request reached the server
+            const redirectUri = `${protocol}://${host}/api/auth/google/callback`;
 
-            // Store user ID in session or as state parameter
+            console.log(`[OAuth Debug] Protocol: ${protocol}, Host: ${host}, Generated Redirect: ${redirectUri}`);
+
+            const authUrl = googleSheetsService.getAuthUrl(redirectUri);
+
+            // Store user ID and origin in state so we know where to redirect back to
+            const origin = req.get('origin') || req.headers.referer || (host.includes('localhost') ? 'http://localhost:5173' : 'https://in.aitelz.com');
+
+            console.log(`[OAuth Debug] Detected Origin for redirect back: ${origin}`);
+
             const state = Buffer.from(JSON.stringify({
-                userId: req.clientId.toString()
+                userId: req.clientId.toString(),
+                origin: origin,
+                redirectUri: redirectUri // Also store this to use in callback
             })).toString('base64');
 
             const urlWithState = `${authUrl}&state=${state}`;
@@ -40,17 +53,21 @@ class GoogleAuthController {
                 return res.status(400).send('Authorization code not provided');
             }
 
-            // Decode state to get user ID
-            let userId;
+            // Decode state to get user ID, origin, and the redirectUri we used
+            let userId, origin, originalRedirectUri;
             try {
                 const stateData = JSON.parse(Buffer.from(state, 'base64').toString());
                 userId = stateData.userId;
+                origin = stateData.origin;
+                originalRedirectUri = stateData.redirectUri;
+                console.log(`[OAuth Debug] Callback Received - User: ${userId}, Origin: ${origin}, Redirect: ${originalRedirectUri}`);
             } catch (err) {
+                console.error('[OAuth Debug] State Decode Error:', err);
                 return res.status(400).send('Invalid state parameter');
             }
 
-            // Exchange code for tokens
-            const tokens = await googleSheetsService.getTokensFromCode(code);
+            // Exchange code for tokens using the SAME redirect URI
+            const tokens = await googleSheetsService.getTokensFromCode(code, originalRedirectUri);
 
             // Find user and update with encrypted tokens
             const client = await Client.findById(userId);
@@ -58,7 +75,7 @@ class GoogleAuthController {
                 return res.status(404).send('User not found');
             }
 
-            // Encrypt and store tokens
+            // ... (save tokens logic same)
             client.google_access_token = encryptionService.encrypt(tokens.access_token);
             if (tokens.refresh_token) {
                 client.google_refresh_token = encryptionService.encrypt(tokens.refresh_token);
@@ -72,15 +89,15 @@ class GoogleAuthController {
 
             // Debug logging
             const fs = require('fs');
-            fs.appendFileSync('debug_auth.txt', `${new Date().toISOString()} - OAuth Callback success for user ${userId}. Sheet ID is: ${client.google_sheet_id}\n`);
+            fs.appendFileSync('debug_auth.txt', `${new Date().toISOString()} - OAuth Callback success for user ${userId}.\n`);
 
-            // Redirect to frontend with success
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-            res.redirect(`${frontendUrl}/dashboard?google_auth=success`);
+            // Redirect back to the origin we came from
+            const frontendUrl = origin || 'https://in.aitelz.com';
+            res.redirect(`${frontendUrl.replace(/\/$/, '')}/dashboard?google_auth=success`);
         } catch (error) {
             console.error('Error in OAuth callback:', error);
-            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-            res.redirect(`${frontendUrl}/dashboard?google_auth=error`);
+            // Attempt to redirect back to frontend even on error
+            res.redirect(`https://in.aitelz.com/dashboard?google_auth=error`);
         }
     }
 
@@ -107,7 +124,9 @@ class GoogleAuthController {
             const fs = require('fs');
             fs.appendFileSync('debug_auth.txt', `${new Date().toISOString()} - Saving Sheet ID ${sheetId} for client ${req.clientId}\n`);
 
-            // Update Sheet ID regardless of auth status
+            // Update Extraction Sheet ID specifically
+            client.extraction_sheet_id = sheetId;
+            // Also keep google_sheet_id for legacy compatibility if needed
             client.google_sheet_id = sheetId;
             await client.save();
 
@@ -123,7 +142,7 @@ class GoogleAuthController {
 
             // Validate we can access the sheet
             try {
-                const sheetInfo = await googleSheetsService.validateSheetAccess(client);
+                const sheetInfo = await googleSheetsService.validateSheetAccess(client, sheetId);
 
                 res.json({
                     success: true,
@@ -150,11 +169,10 @@ class GoogleAuthController {
         try {
             const client = await Client.findById(req.clientId);
 
-            client.google_sheet_id = null;
-            client.google_access_token = null;
-            client.google_refresh_token = null;
-            client.google_token_expiry = null;
-            client.google_authorized = false;
+            // Only disconnect the sheet ID, keep the OAuth token
+            // unless the user specifically wants to revoke access.
+            // For now, let's just clear the extraction sheet.
+            client.extraction_sheet_id = null;
 
             await client.save();
 
@@ -173,10 +191,11 @@ class GoogleAuthController {
             const client = await Client.findById(req.clientId);
 
             const status = {
-                connected: client.google_authorized || false,
-                sheetId: client.google_sheet_id || null,
-                sheetUrl: client.google_sheet_id
-                    ? `https://docs.google.com/spreadsheets/d/${client.google_sheet_id}`
+                is_authorized: client.google_authorized || false,
+                connected: !!client.extraction_sheet_id, // For UI backward compatibility
+                sheetId: client.extraction_sheet_id || null,
+                sheetUrl: client.extraction_sheet_id
+                    ? `https://docs.google.com/spreadsheets/d/${client.extraction_sheet_id}`
                     : null,
             };
 
