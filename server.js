@@ -13,6 +13,8 @@ const executionRoutes = require('./routes/executions');
 const extractionFieldsRoutes = require('./routes/extractionFields');
 const googleAuthRoutes = require('./routes/googleAuth');
 const campaignRoutes = require('./routes/campaigns');
+const widgetRoutes = require('./routes/widgets');
+const publicWidgetRoutes = require('./routes/public/widgetAuth');
 
 const app = express();
 app.set('trust proxy', true);
@@ -74,6 +76,10 @@ app.use('/api/executions', executionRoutes);
 app.use('/api/extraction-fields', extractionFieldsRoutes);
 app.use('/api/auth', googleAuthRoutes);
 app.use('/api/campaigns', campaignRoutes);
+app.use('/api/widgets', widgetRoutes);
+
+// Public API routes (CORS must be handled carefully here, so using the custom proxy headers above)
+app.use('/api/public/widget', publicWidgetRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
