@@ -15,14 +15,11 @@ async function testWebhook() {
 
     // Sample data
     const sampleData = {
-        doctor_name: 'Dr. Test Usage',
-        clinic_hospital_name: 'Test Setup Clinic',
-        phone_number: '123-456-7890',
-        email_id: 'test@example.com',
-        city: 'Test City',
-        call_date: new Date().toISOString().split('T')[0],
-        call_time: new Date().toISOString(),
-        execution_id: 'test-execution-' + Date.now()
+        'Name': 'Test Customer',
+        'Service_Requested': 'Inquiry',
+        'Call_Date': new Date().toISOString().split('T')[0],
+        'Call_Time': new Date().toISOString(),
+        'Execution_ID': 'test-execution-' + Date.now()
     };
 
     console.log('\n📦 Sending sample data:', sampleData);

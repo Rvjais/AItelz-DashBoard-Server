@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const Client = require('../models/Client');
 const { sendPasswordResetEmail } = require('../services/emailService');
+const encryptionService = require('../services/encryptionService');
 
 // Register new client
 exports.register = async (req, res) => {
@@ -101,7 +102,7 @@ exports.login = async (req, res) => {
 // Get current client profile
 exports.getProfile = async (req, res) => {
     try {
-        const client = await Client.findById(req.clientId).select('-password_hash');
+        const client = await Client.findById(req.clientId).select('-password_hash -openai_api_key');
         res.json({ client });
     } catch (error) {
         console.error('Get profile error:', error);
@@ -204,5 +205,59 @@ exports.resetPassword = async (req, res) => {
     } catch (error) {
         console.error('Reset password error:', error);
         res.status(500).json({ error: 'Failed to reset password' });
+    }
+};
+
+// Save OpenAI API Key (encrypted)
+exports.saveApiKey = async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+
+        if (!apiKey || !apiKey.trim()) {
+            return res.status(400).json({ error: 'API key is required' });
+        }
+
+        // Encrypt the API key before storing
+        const encryptedKey = encryptionService.encrypt(apiKey.trim());
+
+        await Client.findByIdAndUpdate(req.clientId, {
+            openai_api_key: encryptedKey,
+        });
+
+        res.json({ message: 'API key saved successfully', hasApiKey: true });
+    } catch (error) {
+        console.error('Save API key error:', error);
+        res.status(500).json({ error: 'Failed to save API key' });
+    }
+};
+
+// Get API key status (never return the actual key)
+exports.getApiKeyStatus = async (req, res) => {
+    try {
+        const client = await Client.findById(req.clientId);
+        const hasApiKey = !!client.openai_api_key;
+
+        res.json({
+            hasApiKey,
+            // Show masked version if key exists
+            maskedKey: hasApiKey ? 'sk-....' + (encryptionService.decrypt(client.openai_api_key) || '').slice(-4) : null,
+        });
+    } catch (error) {
+        console.error('Get API key status error:', error);
+        res.status(500).json({ error: 'Failed to get API key status' });
+    }
+};
+
+// Delete API key
+exports.deleteApiKey = async (req, res) => {
+    try {
+        await Client.findByIdAndUpdate(req.clientId, {
+            openai_api_key: null,
+        });
+
+        res.json({ message: 'API key removed successfully', hasApiKey: false });
+    } catch (error) {
+        console.error('Delete API key error:', error);
+        res.status(500).json({ error: 'Failed to remove API key' });
     }
 };

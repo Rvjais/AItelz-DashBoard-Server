@@ -21,15 +21,15 @@ router.post('/request-call', async (req, res) => {
         }
 
         // 2. Security Check: Validate Origin
-        if (widget.allowed_domains && widget.allowed_domains.length > 0) {
-            if (!origin) {
+        const validDomains = widget.allowed_domains ? widget.allowed_domains.filter(domain => domain.trim() !== '') : [];
+        if (validDomains.length > 0) {
+            if (!origin || origin === 'null') {
                 return res.status(403).json({ success: false, error: 'Direct API access forbidden. Origin header required.' });
             }
 
             try {
                 const originUrl = new URL(origin);
-                const isAllowed = widget.allowed_domains.some(domain => {
-                    // Match exact domain or subdomains if configured that way (simplified for now to exact host match)
+                const isAllowed = validDomains.some(domain => {
                     return domain.includes(originUrl.hostname) || originUrl.hostname.includes(domain);
                 });
 
@@ -60,6 +60,48 @@ router.post('/request-call', async (req, res) => {
         console.log(`📞 Widget ${widget_id} initiating call to ${cleanPhone} via agent ${agent.bolna_agent_id}`);
         const bolnaResponse = await bolnaService.initiateCall(agent.bolna_agent_id, cleanPhone);
 
+        // 6. Proactively create/upsert the Execution record with source: 'widget'
+        try {
+            // Bolna can return the execution ID in various fields — check all common locations
+            const findId = (obj) => {
+                if (!obj || typeof obj !== 'object') return null;
+                const keys = ['id', 'execution_id', 'call_id', 'bolna_execution_id'];
+                for (const k of keys) {
+                    if (obj[k] && typeof obj[k] === 'string') return obj[k];
+                }
+                // Search one level deeper (e.g., bolnaResponse.data.id)
+                for (const v of Object.values(obj)) {
+                    if (v && typeof v === 'object') {
+                        const found = findId(v);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            };
+            const executionId = findId(bolnaResponse);
+            if (executionId) {
+                const Execution = require('../../models/Execution');
+                await Execution.findOneAndUpdate(
+                    { bolna_execution_id: executionId },
+                    {
+                        bolna_execution_id: executionId,
+                        agent_id: agent._id,
+                        status: 'pending',
+                        to_number: cleanPhone,
+                        source: 'widget',
+                        started_at: new Date()
+                    },
+                    { upsert: true, new: true }
+                );
+                console.log(`📝 Registered Execution ${executionId} as Widget call.`);
+            } else {
+                console.warn('⚠️ Widget call initiated but no execution ID found in Bolna response. Will be tagged when synced.', bolnaResponse);
+            }
+        } catch (execError) {
+            console.error('Error logging widget execution source:', execError);
+            // Don't fail the request if logging fails
+        }
+
         res.json({
             success: true,
             message: 'Call initiated successfully.',
@@ -86,10 +128,11 @@ router.get('/config/:id', async (req, res) => {
 
         // Check origin for config fetch too
         const origin = req.headers.origin || req.headers.referer;
-        if (widget.allowed_domains && widget.allowed_domains.length > 0 && origin) {
+        const validDomains = widget.allowed_domains ? widget.allowed_domains.filter(domain => domain.trim() !== '') : [];
+        if (validDomains.length > 0 && origin) {
             try {
                 const originUrl = new URL(origin);
-                const isAllowed = widget.allowed_domains.some(domain =>
+                const isAllowed = validDomains.some(domain =>
                     domain.includes(originUrl.hostname) || originUrl.hostname.includes(domain)
                 );
                 if (!isAllowed) {

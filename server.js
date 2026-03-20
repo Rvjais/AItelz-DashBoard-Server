@@ -29,9 +29,18 @@ app.use((req, res, next) => {
     let origin = rawOrigin.split(',')[0].trim();
 
     const allowed = ['https://in.aitelz.com', 'https://aitelz.com'];
+    const isLocalhost = origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1');
 
-    // If it's a valid allowed origin, use it. Otherwise, fallback to the default frontend URL.
-    if (allowed.includes(origin) || origin.endsWith('aitelz.com')) {
+    // If it's a public widget route, allow any origin to embed the script
+    if (req.path.startsWith('/api/public/widget')) {
+        res.header('Access-Control-Allow-Origin', origin || '*');
+    }
+    // Allow localhost in development mode
+    else if (isLocalhost) {
+        res.header('Access-Control-Allow-Origin', origin);
+    }
+    // Otherwise, strictly enforce dashboard origins
+    else if (allowed.includes(origin) || origin.endsWith('aitelz.com')) {
         res.header('Access-Control-Allow-Origin', origin);
     } else {
         res.header('Access-Control-Allow-Origin', 'https://in.aitelz.com');

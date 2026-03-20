@@ -70,6 +70,12 @@ const executionSchema = new mongoose.Schema({
         type: Number,
         default: 0,
     },
+    // Source of the call
+    source: {
+        type: String,
+        enum: ['api', 'dashboard', 'widget', 'campaign'],
+        default: 'api',
+    },
 }, {
     timestamps: true, // createdAt and updatedAt
 });

@@ -36,20 +36,24 @@ class SheetService {
     }
 
     /**
-     * Save extracted doctor data to CSV file
-     * @param {Array} dataArray - Array of extracted doctor information objects
-     * @param {string} filename - Optional filename (default: doctor_data_YYYY-MM-DD.csv)
+     * Save extraction data to CSV file
+     * @param {Array<string>} headers - Array of header names
+     * @param {Array<Object>} dataArray - Array of data objects
+     * @param {string} filename - Optional filename
      * @returns {string} Path to saved file
      */
-    saveToCSV(dataArray, filename = null) {
-        if (!Array.isArray(dataArray) || dataArray.length === 0) {
-            throw new Error('Data array is required and must not be empty');
+    saveToCSV(headers, dataArray, filename = null) {
+        if (!Array.isArray(headers) || headers.length === 0) {
+            throw new Error('Headers array is required and must not be empty');
+        }
+        if (!Array.isArray(dataArray)) {
+            dataArray = [];
         }
 
         // Generate filename if not provided
         if (!filename) {
             const date = new Date().toISOString().split('T')[0];
-            filename = `doctor_data_${date}.csv`;
+            filename = `extracted_data_${date}.csv`;
         }
 
         // Ensure .csv extension
@@ -59,32 +63,14 @@ class SheetService {
 
         const filePath = path.join(this.exportDir, filename);
 
-        // CSV Headers
-        const headers = [
-            'Doctor Name',
-            'Clinic/Hospital Name',
-            'Phone Number',
-            'Email ID',
-            'City',
-            'Call Date',
-            'Call Time',
-            'Execution ID'
-        ];
-
         // Convert data to CSV rows
-        const csvRows = [headers.join(',')];
+        const csvRows = [headers.map(h => this.escapeCSV(h)).join(',')];
 
         dataArray.forEach(item => {
-            const row = [
-                this.escapeCSV(item.doctor_name || ''),
-                this.escapeCSV(item.clinic_hospital_name || ''),
-                this.escapeCSV(item.phone_number || ''),
-                this.escapeCSV(item.email_id || ''),
-                this.escapeCSV(item.city || ''),
-                item.call_date || '',
-                item.call_time || '',
-                item.execution_id || ''
-            ];
+            const row = headers.map(header => {
+                const value = item.hasOwnProperty(header) ? item[header] : '';
+                return this.escapeCSV(value);
+            });
             csvRows.push(row.join(','));
         });
 
@@ -98,46 +84,31 @@ class SheetService {
 
     /**
      * Append data to existing CSV file or create new one
-     * @param {Object} data - Single doctor information object
+     * @param {Array<string>} headers - Column headers
+     * @param {Object} data - Data object
      * @param {string} filename - CSV filename
      * @returns {string} Path to file
      */
-    appendToCSV(data, filename = 'doctor_data.csv') {
+    appendToCSV(headers, data, filename = 'extracted_data.csv') {
         if (!filename.endsWith('.csv')) {
             filename += '.csv';
         }
 
         const filePath = path.join(this.exportDir, filename);
-        const headers = [
-            'Doctor Name',
-            'Clinic/Hospital Name',
-            'Phone Number',
-            'Email ID',
-            'City',
-            'Call Date',
-            'Call Time',
-            'Execution ID'
-        ];
 
         // Check if file exists
         const fileExists = fs.existsSync(filePath);
 
         if (!fileExists) {
             // Create new file with headers
-            fs.writeFileSync(filePath, headers.join(',') + '\n', 'utf8');
+            fs.writeFileSync(filePath, headers.map(h => this.escapeCSV(h)).join(',') + '\n', 'utf8');
         }
 
         // Append data row
-        const row = [
-            this.escapeCSV(data.doctor_name || ''),
-            this.escapeCSV(data.clinic_hospital_name || ''),
-            this.escapeCSV(data.phone_number || ''),
-            this.escapeCSV(data.email_id || ''),
-            this.escapeCSV(data.city || ''),
-            data.call_date || '',
-            data.call_time || '',
-            data.execution_id || ''
-        ];
+        const row = headers.map(header => {
+            const value = data.hasOwnProperty(header) ? data[header] : '';
+            return this.escapeCSV(value);
+        });
 
         fs.appendFileSync(filePath, row.join(',') + '\n', 'utf8');
         return filePath;

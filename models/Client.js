@@ -61,6 +61,11 @@ const clientSchema = new mongoose.Schema({
         type: Boolean,
         default: false,
     },
+    // User's own OpenAI API key (encrypted)
+    openai_api_key: {
+        type: String,
+        default: null,
+    },
 }, {
     timestamps: true, // Automatically adds createdAt and updatedAt
 });

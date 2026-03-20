@@ -275,6 +275,16 @@ class BolnaService {
                 return;
             }
 
+            // Get client to retrieve API key
+            const Client = require('../models/Client');
+            const encryptionService = require('./encryptionService');
+            const client = await Client.findById(agent.client_id);
+
+            // Decrypt the user's OpenAI API key
+            const userApiKey = client?.openai_api_key
+                ? encryptionService.decrypt(client.openai_api_key)
+                : null;
+
             let extractedData = {};
 
             // Check if we already have extracted data
@@ -289,10 +299,11 @@ class BolnaService {
 
                 console.log(`🤖 Extracting data with ${extractionFields.length} custom fields...`);
 
-                // Use custom fields extraction
+                // Use custom fields extraction with user's API key
                 extractedData = await dataExtractionService.extractWithCustomFields(
                     execution.transcript,
-                    fieldsForAI
+                    fieldsForAI,
+                    userApiKey
                 );
             }
 
@@ -309,10 +320,6 @@ class BolnaService {
                     'Execution_ID': execution.bolna_execution_id || execution._id.toString(),
                     'Agent_Name': agent.name || '',
                 };
-
-                // Get client to check Google Sheets connection
-                const Client = require('../models/Client');
-                const client = await Client.findById(agent.client_id);
 
                 if (client && client.google_authorized) {
                     // Determine which sheet ID to use: priority extraction_sheet_id, then legacy google_sheet_id
